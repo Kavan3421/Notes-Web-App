@@ -168,7 +168,7 @@ app.post("/notes", requireAuth, async (c) => {
     const user = c.get("user");
     const body = await c.req.json();
 
-    const { title, content, shareType, accessType, expiryHours } = body;
+    const { title, content, shareType, accessType, expiryHours, expiryMinutes } = body;
 
     if (!title || typeof title !== "string" || !title.trim()) {
       return c.json({ error: "Title is required." }, 400);
@@ -184,8 +184,10 @@ app.post("/notes", requireAuth, async (c) => {
     }
 
     let expiresAt: Date | null = null;
-    if (expiryHours && typeof expiryHours === "number" && expiryHours > 0) {
-      expiresAt = new Date(Date.now() + expiryHours * 60 * 60 * 1000);
+    if (typeof expiryMinutes === "number" && expiryMinutes > 0) {
+      expiresAt = new Date(Date.now() + Math.round(expiryMinutes * 60 * 1000));
+    } else if (typeof expiryHours === "number" && expiryHours > 0) {
+      expiresAt = new Date(Date.now() + Math.round(expiryHours * 60 * 60 * 1000));
     }
 
     const { rawToken, tokenHash } = generateShareToken();
@@ -242,7 +244,7 @@ app.post("/notes/:id/regenerate-share", requireAuth, async (c) => {
     const noteId = c.req.param("id");
     const body = await c.req.json();
 
-    const { shareType, accessType, expiryHours } = body;
+    const { shareType, accessType, expiryHours, expiryMinutes } = body;
 
     if (!["ONE_TIME", "TIME_BASED"].includes(shareType)) {
       return c.json({ error: "Invalid share type." }, 400);
@@ -260,8 +262,10 @@ app.post("/notes/:id/regenerate-share", requireAuth, async (c) => {
     }
 
     let expiresAt: Date | null = null;
-    if (expiryHours && typeof expiryHours === "number" && expiryHours > 0) {
-      expiresAt = new Date(Date.now() + expiryHours * 60 * 60 * 1000);
+    if (typeof expiryMinutes === "number" && expiryMinutes > 0) {
+      expiresAt = new Date(Date.now() + Math.round(expiryMinutes * 60 * 1000));
+    } else if (typeof expiryHours === "number" && expiryHours > 0) {
+      expiresAt = new Date(Date.now() + Math.round(expiryHours * 60 * 60 * 1000));
     }
 
     const { rawToken, tokenHash } = generateShareToken();

@@ -514,6 +514,10 @@ export default function NoteDetailPage() {
                         onChange={(e) => setRegenExpiryHours(Number(e.target.value))}
                         className="flex h-9 w-full rounded-md border border-input bg-background/90 px-3 py-1 text-xs focus-visible:ring-1"
                       >
+                        <option value={1 / 60}>1 Minute</option>
+                        <option value={5 / 60}>5 Minutes</option>
+                        <option value={15 / 60}>15 Minutes</option>
+                        <option value={30 / 60}>30 Minutes</option>
                         <option value={1}>1 Hour</option>
                         <option value={12}>12 Hours</option>
                         <option value={24}>24 Hours (1 Day)</option>

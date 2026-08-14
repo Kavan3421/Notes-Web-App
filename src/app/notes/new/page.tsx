@@ -285,6 +285,10 @@ export default function NewNotePage() {
                   onChange={(e) => setExpiryHours(Number(e.target.value))}
                   className="flex h-10 w-full rounded-md border border-input bg-background/80 px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
+                  <option value={1 / 60}>1 Minute</option>
+                  <option value={5 / 60}>5 Minutes</option>
+                  <option value={15 / 60}>15 Minutes</option>
+                  <option value={30 / 60}>30 Minutes</option>
                   <option value={1}>1 Hour</option>
                   <option value={12}>12 Hours</option>
                   <option value={24}>24 Hours (1 Day)</option>
