@@ -285,12 +285,6 @@ app.post("/notes/:id/regenerate-share", requireAuth, async (c) => {
       return c.json({ error: "Note not found or access denied." }, 404);
     }
 
-    // Mark any existing active shares as revoked so only the new link is active
-    await db.shareLink.updateMany({
-      where: { noteId: note.id, revokedAt: null },
-      data: { revokedAt: new Date() },
-    });
-
     // Expiry calculation
     let expiresAt: Date | null = null;
     if (expiryHours && typeof expiryHours === "number" && expiryHours > 0) {
@@ -308,7 +302,7 @@ app.post("/notes/:id/regenerate-share", requireAuth, async (c) => {
       passwordHash = await hashSecret(generatedKey);
     }
 
-    // Create new ShareLink
+    // Create new independent ShareLink database record
     const newShare = await db.shareLink.create({
       data: {
         noteId: note.id,
@@ -347,7 +341,6 @@ app.get("/notes", requireAuth, async (c) => {
       include: {
         shares: {
           orderBy: { createdAt: "desc" },
-          take: 1,
         },
       },
     });

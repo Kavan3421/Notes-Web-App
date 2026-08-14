@@ -9,7 +9,8 @@
     "lint": "next lint",
     "db:push": "prisma db push",
     "db:studio": "prisma studio",
-    "test:race": "npx tsx scripts/test-race-condition.ts"
+    "test:race": "npx tsx scripts/test-race-condition.ts",
+    "test:shares": "npx tsx scripts/test-multiple-shares.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",

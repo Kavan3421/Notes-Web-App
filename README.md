@@ -181,6 +181,7 @@ Open `http://localhost:3000` in your web browser.
 | `npm run db:push` | Push schema changes directly to PostgreSQL |
 | `npm run db:studio` | Open interactive Prisma Studio GUI database inspector |
 | `npm run test:race` | Execute automated atomic race-condition test suite |
+| `npm run test:shares` | Execute automated independent multiple share links test suite |
 
 ---
 

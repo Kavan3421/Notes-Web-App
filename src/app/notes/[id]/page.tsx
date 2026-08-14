@@ -8,25 +8,47 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Eye, Clock, Lock, Globe, ShieldAlert, Check, Copy, Ban, RefreshCw, AlertCircle, Link as LinkIcon, Sparkles, KeyRound, Plus } from "lucide-react";
+import {
+  ArrowLeft,
+  Eye,
+  Clock,
+  Lock,
+  Globe,
+  ShieldAlert,
+  Check,
+  Copy,
+  Ban,
+  RefreshCw,
+  AlertCircle,
+  Link as LinkIcon,
+  Sparkles,
+  KeyRound,
+  Plus,
+  ChevronDown,
+  ChevronUp,
+  History,
+  BarChart2
+} from "lucide-react";
+
+interface ShareItem {
+  id: string;
+  tokenHash: string;
+  rawToken: string | null;
+  shareType: "ONE_TIME" | "TIME_BASED";
+  accessType: "PUBLIC" | "PASSWORD_PROTECTED";
+  viewCount: number;
+  expiresAt: string | null;
+  usedAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+}
 
 interface NoteDetail {
   id: string;
   title: string;
   content: string;
   createdAt: string;
-  shares: Array<{
-    id: string;
-    tokenHash: string;
-    rawToken: string | null;
-    shareType: "ONE_TIME" | "TIME_BASED";
-    accessType: "PUBLIC" | "PASSWORD_PROTECTED";
-    viewCount: number;
-    expiresAt: string | null;
-    usedAt: string | null;
-    revokedAt: string | null;
-    createdAt: string;
-  }>;
+  shares: ShareItem[];
 }
 
 export default function NoteDetailPage() {
@@ -36,20 +58,24 @@ export default function NoteDetailPage() {
 
   const [note, setNote] = useState<NoteDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [revoking, setRevoking] = useState(false);
+  const [revokingId, setRevokingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedShareId, setCopiedShareId] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState(false);
 
-  // Regenerate Modal / Form State
+  // Accordion state for Share History
+  const [isHistoryOpen, setIsHistoryOpen] = useState(true);
+
+  // Generate New Share Form State
   const [showRegenerateForm, setShowRegenerateForm] = useState(false);
   const [regenShareType, setRegenShareType] = useState<"ONE_TIME" | "TIME_BASED">("ONE_TIME");
   const [regenAccessType, setRegenAccessType] = useState<"PUBLIC" | "PASSWORD_PROTECTED">("PUBLIC");
   const [regenExpiryHours, setRegenExpiryHours] = useState<number>(24);
   const [regenerating, setRegenerating] = useState(false);
 
-  // Regenerated Result State
+  // Newly Generated Result State
   const [regenResult, setRegenResult] = useState<{
+    shareId: string;
     shareUrl: string;
     accessKey: string | null;
   } | null>(null);
@@ -85,7 +111,7 @@ export default function NoteDetailPage() {
       return;
     }
 
-    setRevoking(true);
+    setRevokingId(shareId);
     try {
       const res = await fetch(`/api/shares/${shareId}/revoke`, {
         method: "POST",
@@ -97,16 +123,15 @@ export default function NoteDetailPage() {
         return;
       }
 
-      setRegenResult(null);
       await fetchNote();
     } catch (err) {
       alert("Error revoking share link.");
     } finally {
-      setRevoking(false);
+      setRevokingId(null);
     }
   };
 
-  const handleRegenerateShare = async (e: React.FormEvent) => {
+  const handleGenerateShare = async (e: React.FormEvent) => {
     e.preventDefault();
     setRegenerating(true);
     setRegenResult(null);
@@ -125,29 +150,31 @@ export default function NoteDetailPage() {
       const data = await res.json();
 
       if (!res.ok) {
-        alert(data.error || "Failed to regenerate share link.");
+        alert(data.error || "Failed to generate share link.");
         return;
       }
 
       setRegenResult({
+        shareId: data.shareId,
         shareUrl: data.shareUrl,
         accessKey: data.accessKey,
       });
 
       setShowRegenerateForm(false);
+      setIsHistoryOpen(true);
       await fetchNote();
     } catch (err) {
-      alert("Error regenerating share link.");
+      alert("Error generating share link.");
     } finally {
       setRegenerating(false);
     }
   };
 
-  const copyToClipboard = async (text: string, type: "link" | "key" = "link") => {
+  const copyToClipboard = async (text: string, shareId?: string) => {
     await navigator.clipboard.writeText(text);
-    if (type === "link") {
-      setCopiedLink(true);
-      setTimeout(() => setCopiedLink(false), 2000);
+    if (shareId) {
+      setCopiedShareId(shareId);
+      setTimeout(() => setCopiedShareId(null), 2000);
     } else {
       setCopiedKey(true);
       setTimeout(() => setCopiedKey(false), 2000);
@@ -175,17 +202,16 @@ export default function NoteDetailPage() {
     );
   }
 
-  const share = note.shares[0];
-  const isRevoked = share?.revokedAt != null;
-  const isUsed = share?.shareType === "ONE_TIME" && share?.usedAt != null;
-  const isExpired = share?.expiresAt != null && new Date(share.expiresAt) < new Date();
-  const isLinkInactive = isRevoked || isUsed || isExpired;
-  const isLinkActive = share && !isLinkInactive;
-
-  // Support share URL for ALL notes
   const appUrl = typeof window !== "undefined" ? window.location.origin : (process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000");
-  const shareToken = share?.rawToken || share?.tokenHash || "";
-  const fullShareUrl = shareToken ? `${appUrl}/share/${shareToken}` : "";
+
+  // Calculate Overall Note Statistics
+  const totalOverallViews = note.shares.reduce((acc, s) => acc + s.viewCount, 0);
+  const activeSharesCount = note.shares.filter(
+    (s) =>
+      !s.revokedAt &&
+      !(s.shareType === "ONE_TIME" && s.usedAt) &&
+      !(s.expiresAt && new Date(s.expiresAt) < new Date())
+  ).length;
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
@@ -210,29 +236,35 @@ export default function NoteDetailPage() {
                 Created on {new Date(note.createdAt).toLocaleString()}
               </CardDescription>
             </div>
-            <div>
-              {isRevoked ? (
-                <Badge variant="destructive" className="px-3 py-1 text-xs font-bold uppercase tracking-wider">
-                  REVOKED
-                </Badge>
-              ) : isUsed ? (
-                <Badge variant="warning" className="px-3 py-1 text-xs font-bold uppercase tracking-wider">
-                  USED / CONSUMED
-                </Badge>
-              ) : isExpired ? (
-                <Badge variant="destructive" className="px-3 py-1 text-xs font-bold uppercase tracking-wider">
-                  EXPIRED
-                </Badge>
-              ) : (
-                <Badge variant="success" className="px-3 py-1 text-xs font-bold uppercase tracking-wider">
-                  ACTIVE
-                </Badge>
-              )}
+
+            {/* Overall Total Views Badge */}
+            <div className="flex items-center gap-2 bg-primary/10 border border-primary/30 px-3.5 py-1.5 rounded-xl">
+              <BarChart2 className="h-4 w-4 text-primary shrink-0" />
+              <div>
+                <div className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Overall Note Views</div>
+                <div className="text-lg font-extrabold text-primary leading-tight">{totalOverallViews} Views</div>
+              </div>
             </div>
           </div>
         </CardHeader>
 
         <CardContent className="space-y-6 pt-6">
+          {/* Note Summary Stats */}
+          <div className="grid grid-cols-3 gap-3 p-3.5 rounded-xl bg-background/60 border border-border/60 text-center">
+            <div>
+              <div className="text-base font-bold text-slate-100">{totalOverallViews}</div>
+              <div className="text-[11px] text-muted-foreground font-medium">Overall Total Views</div>
+            </div>
+            <div className="border-x border-border/60">
+              <div className="text-base font-bold text-emerald-400">{activeSharesCount}</div>
+              <div className="text-[11px] text-muted-foreground font-medium">Active Links</div>
+            </div>
+            <div>
+              <div className="text-base font-bold text-slate-200">{note.shares.length}</div>
+              <div className="text-[11px] text-muted-foreground font-medium">Total Share Links</div>
+            </div>
+          </div>
+
           {/* Note Content */}
           <div className="space-y-2">
             <h4 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
@@ -243,35 +275,7 @@ export default function NoteDetailPage() {
             </div>
           </div>
 
-          {/* Active Share Link Copy Box */}
-          {isLinkActive && fullShareUrl && (
-            <div className="p-4 rounded-xl bg-primary/10 border border-primary/30 space-y-3">
-              <div className="flex items-center justify-between">
-                <Label className="text-xs uppercase tracking-wider text-primary font-semibold flex items-center gap-1.5">
-                  <LinkIcon className="h-3.5 w-3.5" /> Shareable Link
-                </Label>
-                <span className="text-[11px] text-emerald-400 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-                  Ready to Share
-                </span>
-              </div>
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
-                <Input
-                  value={fullShareUrl}
-                  readOnly
-                  className="font-mono text-xs sm:text-sm bg-background/90 text-emerald-300 select-all h-10 border-primary/20 focus-visible:ring-emerald-500"
-                />
-                <Button
-                  onClick={() => copyToClipboard(fullShareUrl, "link")}
-                  className="shrink-0 gap-2 h-10 w-full sm:w-auto font-medium shadow-md transition-all active:scale-95"
-                >
-                  {copiedLink ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
-                  {copiedLink ? "Copied" : "Copy Share Link"}
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {/* Recently Regenerated Password Box */}
+          {/* Newly Generated Password Notification */}
           {regenResult?.accessKey && (
             <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-3">
               <div className="flex items-center justify-between">
@@ -290,7 +294,7 @@ export default function NoteDetailPage() {
                 />
                 <Button
                   variant="secondary"
-                  onClick={() => copyToClipboard(regenResult.accessKey!, "key")}
+                  onClick={() => copyToClipboard(regenResult.accessKey!)}
                   className="shrink-0 gap-1.5 h-10 w-full sm:w-auto bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-medium"
                 >
                   {copiedKey ? <Check className="h-4 w-4 text-amber-400" /> : <Copy className="h-4 w-4" />}
@@ -300,57 +304,166 @@ export default function NoteDetailPage() {
             </div>
           )}
 
-          {/* Inactive / Revoked / Expired Banner with Regenerate Option */}
-          {isLinkInactive && (
-            <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-3">
-              <div className="flex items-start gap-2 text-xs text-amber-300 leading-relaxed">
-                <AlertCircle className="h-4 w-4 shrink-0 text-amber-400 mt-0.5" />
-                <div>
-                  <strong>Link Inactive:</strong>{" "}
-                  {isRevoked
-                    ? "This share link was manually revoked."
-                    : isUsed
-                    ? "This one-time share link was opened and consumed."
-                    : "This share link has expired."}{" "}
-                  You can regenerate a new active share link for this note anytime!
+          {/* ======================================================== */}
+          {/* LATEST / CURRENT SHARE LINK (OUTSIDE ACCORDION)           */}
+          {/* ======================================================== */}
+          {note.shares.length > 0 && (() => {
+            const latestShare = note.shares[0];
+            const isRevoked = latestShare.revokedAt != null;
+            const isUsed = latestShare.shareType === "ONE_TIME" && latestShare.usedAt != null;
+            const isExpired = latestShare.expiresAt != null && new Date(latestShare.expiresAt) < new Date();
+            const isInactive = isRevoked || isUsed || isExpired;
+            const isActive = !isInactive;
+
+            const token = latestShare.rawToken || latestShare.tokenHash;
+            const shareUrl = `${appUrl}/share/${token}`;
+
+            return (
+              <div className="space-y-3 p-5 rounded-2xl bg-primary/5 border border-primary/30 shadow-xl">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                      <LinkIcon className="h-4 w-4 text-primary" /> Active / Latest Share Link
+                    </span>
+                    <span className="text-[11px] text-muted-foreground">
+                      (Share Link #{note.shares.length})
+                    </span>
+                  </div>
+
+                  <div>
+                    {isRevoked ? (
+                      <Badge variant="destructive" className="text-[10px] font-bold">REVOKED</Badge>
+                    ) : isUsed ? (
+                      <Badge variant="warning" className="text-[10px] font-bold">USED / CONSUMED</Badge>
+                    ) : isExpired ? (
+                      <Badge variant="destructive" className="text-[10px] font-bold">EXPIRED</Badge>
+                    ) : (
+                      <Badge variant="success" className="text-[10px] font-bold">ACTIVE</Badge>
+                    )}
+                  </div>
                 </div>
+
+                {/* Share Link Copy Field */}
+                {isActive && (
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                    <Input
+                      value={shareUrl}
+                      readOnly
+                      className="font-mono text-xs sm:text-sm bg-background/90 text-emerald-300 select-all h-10 border-primary/30 focus-visible:ring-emerald-500"
+                    />
+                    <Button
+                      onClick={() => copyToClipboard(shareUrl, latestShare.id)}
+                      className="shrink-0 gap-2 h-10 font-medium shadow-md transition-all active:scale-95"
+                    >
+                      {copiedShareId === latestShare.id ? (
+                        <Check className="h-4 w-4 text-emerald-400" />
+                      ) : (
+                        <Copy className="h-4 w-4" />
+                      )}
+                      {copiedShareId === latestShare.id ? "Copied" : "Copy Link"}
+                    </Button>
+                  </div>
+                )}
+
+                {/* Share Attributes Grid */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs pt-1">
+                  <div className="p-3 rounded-xl bg-primary/10 border border-primary/20 flex items-center gap-2.5">
+                    <Eye className="h-4 w-4 text-primary shrink-0" />
+                    <div>
+                      <div className="font-bold text-slate-100 text-sm">{latestShare.viewCount}</div>
+                      <div className="text-[10px] text-muted-foreground font-medium">Link Views</div>
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-muted/30 border border-border/60 flex items-center gap-2.5">
+                    <Clock className="h-4 w-4 text-amber-400 shrink-0" />
+                    <div>
+                      <div className="font-semibold text-slate-200 text-xs">
+                        {latestShare.shareType === "ONE_TIME" ? "One-Time" : "Time-Based"}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground font-medium">Type</div>
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-muted/30 border border-border/60 flex items-center gap-2.5 min-w-0">
+                    {latestShare.accessType === "PASSWORD_PROTECTED" ? (
+                      <Lock className="h-4 w-4 text-emerald-400 shrink-0" />
+                    ) : (
+                      <Globe className="h-4 w-4 text-blue-400 shrink-0" />
+                    )}
+                    <div className="min-w-0">
+                      <div className="font-semibold text-slate-200 text-xs truncate">
+                        {latestShare.accessType === "PASSWORD_PROTECTED" ? "Password" : "Public"}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground font-medium">Access</div>
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-muted/30 border border-border/60 flex items-center gap-2.5 min-w-0">
+                    <ShieldAlert className="h-4 w-4 text-purple-400 shrink-0" />
+                    <div className="min-w-0">
+                      <div className="font-semibold text-slate-200 text-xs truncate">
+                        {latestShare.expiresAt
+                          ? new Date(latestShare.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                          : "No Expiry"}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground font-medium">
+                        {latestShare.expiresAt ? new Date(latestShare.expiresAt).toLocaleDateString() : "Lifetime"}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Revoke Action */}
+                {isActive && (
+                  <div className="flex justify-end pt-1">
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => handleRevoke(latestShare.id)}
+                      disabled={revokingId === latestShare.id}
+                      className="gap-1.5 text-xs h-8 font-medium"
+                    >
+                      <Ban className="h-3.5 w-3.5" />
+                      {revokingId === latestShare.id ? "Revoking..." : "Revoke Link"}
+                    </Button>
+                  </div>
+                )}
               </div>
+            );
+          })()}
 
-              {!showRegenerateForm && (
-                <Button
-                  onClick={() => setShowRegenerateForm(true)}
-                  className="gap-2 w-full sm:w-auto font-medium shadow-md bg-amber-500 hover:bg-amber-600 text-slate-950"
-                >
-                  <Sparkles className="h-4 w-4" /> Regenerate New Share Link
-                </Button>
-              )}
-            </div>
-          )}
-
-          {/* Active Note Regenerate Button */}
-          {!isLinkInactive && !showRegenerateForm && (
-            <div className="pt-2 flex justify-end">
+          {/* Generate New Share Link Action */}
+          {!showRegenerateForm && (
+            <div className="flex justify-between items-center pt-2">
+              <div className="space-y-0.5">
+                <h4 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+                  Share Management
+                </h4>
+                <p className="text-[11px] text-muted-foreground">
+                  Create additional independent share links with custom rules.
+                </p>
+              </div>
               <Button
-                variant="outline"
-                size="sm"
                 onClick={() => setShowRegenerateForm(true)}
-                className="gap-1.5 text-xs text-slate-300 hover:text-slate-100"
+                className="gap-2 font-medium shadow-md bg-primary hover:bg-primary/90 text-primary-foreground"
+                size="sm"
               >
-                <RefreshCw className="h-3.5 w-3.5" /> Regenerate New Link
+                <Plus className="h-4 w-4" /> Generate New Share Link
               </Button>
             </div>
           )}
 
-          {/* Inline Regenerate Share Link Form */}
+          {/* Inline Generate Share Link Form */}
           {showRegenerateForm && (
             <Card className="border-primary/40 bg-primary/5 shadow-xl">
-              <form onSubmit={handleRegenerateShare}>
+              <form onSubmit={handleGenerateShare}>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base font-bold flex items-center gap-2 text-slate-100">
-                    <Sparkles className="h-4 w-4 text-primary" /> Regenerate Share Link Settings
+                    <Sparkles className="h-4 w-4 text-primary" /> Generate New Share Link Settings
                   </CardTitle>
                   <CardDescription className="text-xs">
-                    Generate a fresh, working share link with new security and access rules.
+                    Generate an independent share link with its own access rules and view count tracking.
                   </CardDescription>
                 </CardHeader>
 
@@ -463,76 +576,196 @@ export default function NoteDetailPage() {
             </Card>
           )}
 
-          {/* Share Statistics & Controls */}
-          {share && (
-            <div className="space-y-4 pt-4 border-t border-border/60">
-              <h4 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
-                Latest Share Security & Statistics
-              </h4>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                {/* View Count */}
-                <div className="p-3.5 rounded-xl bg-primary/10 border border-primary/20 flex flex-col items-center justify-center text-center">
-                  <Eye className="h-5 w-5 text-primary mb-1" />
-                  <div className="text-xl font-bold text-slate-100">{share.viewCount}</div>
-                  <div className="text-[11px] text-muted-foreground font-medium">Successful Views</div>
-                </div>
-
-                {/* Share Type */}
-                <div className="p-3.5 rounded-xl bg-muted/30 border border-border/60 flex flex-col items-center justify-center text-center">
-                  <Clock className="h-5 w-5 text-amber-400 mb-1" />
-                  <div className="text-sm font-semibold text-slate-200">
-                    {share.shareType === "ONE_TIME" ? "One-Time" : "Time-Based"}
+          {/* ======================================================== */}
+          {/* ACCORDION: OLD SHARE LINKS HISTORY ONLY (note.shares.slice(1)) */}
+          {/* ======================================================== */}
+          {note.shares.length > 1 && (
+            <div className="border border-border/80 rounded-2xl overflow-hidden shadow-lg bg-background/40">
+              {/* Accordion Toggle Header */}
+              <button
+                type="button"
+                onClick={() => setIsHistoryOpen(!isHistoryOpen)}
+                className="w-full p-4 flex items-center justify-between bg-muted/20 hover:bg-muted/30 transition-colors text-left border-b border-border/40"
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-xl bg-primary/10 border border-primary/20 text-primary">
+                    <History className="h-4 w-4" />
                   </div>
-                  <div className="text-[11px] text-muted-foreground font-medium">Share Type</div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                      Old Share Links History
+                      <Badge variant="outline" className="text-[10px] font-semibold bg-background">
+                        {note.shares.length - 1} Old {note.shares.length - 1 === 1 ? "Link" : "Links"}
+                      </Badge>
+                    </h3>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      Click to {isHistoryOpen ? "collapse" : "expand"} previous share links history
+                    </p>
+                  </div>
                 </div>
 
-                {/* Access Type */}
-                <div className="p-3.5 rounded-xl bg-muted/30 border border-border/60 flex flex-col items-center justify-center text-center min-w-0">
-                  {share.accessType === "PASSWORD_PROTECTED" ? (
-                    <Lock className="h-5 w-5 text-emerald-400 mb-1" />
+                <div className="flex items-center gap-2 text-slate-400">
+                  <span className="text-xs font-medium hidden sm:inline">
+                    {isHistoryOpen ? "Hide Old Links" : "Show Old Links"}
+                  </span>
+                  {isHistoryOpen ? (
+                    <ChevronUp className="h-5 w-5 text-primary transition-transform" />
                   ) : (
-                    <Globe className="h-5 w-5 text-blue-400 mb-1" />
+                    <ChevronDown className="h-5 w-5 text-slate-400 transition-transform" />
                   )}
-                  <div className="text-xs sm:text-sm font-semibold text-slate-200 truncate max-w-full">
-                    {share.accessType === "PASSWORD_PROTECTED" ? "Protected" : "Public"}
-                  </div>
-                  <div className="text-[11px] text-muted-foreground font-medium">Access Control</div>
                 </div>
+              </button>
 
-                {/* Expiry */}
-                <div className="p-3.5 rounded-xl bg-muted/30 border border-border/60 flex flex-col items-center justify-center text-center min-w-0">
-                  <ShieldAlert className="h-5 w-5 text-purple-400 mb-1" />
-                  <div className="text-xs font-semibold text-slate-200 truncate max-w-full">
-                    {share.expiresAt
-                      ? new Date(share.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                      : "No Expiry"}
-                  </div>
-                  <div className="text-[11px] text-muted-foreground font-medium">
-                    {share.expiresAt ? new Date(share.expiresAt).toLocaleDateString() : "Lifetime"}
-                  </div>
-                </div>
-              </div>
+              {/* Accordion Content Body: ONLY Old Share Links (note.shares.slice(1)) */}
+              {isHistoryOpen && (
+                <div className="p-4 space-y-4 bg-muted/5">
+                  {note.shares.slice(1).map((share, index) => {
+                    const isRevoked = share.revokedAt != null;
+                    const isUsed = share.shareType === "ONE_TIME" && share.usedAt != null;
+                    const isExpired = share.expiresAt != null && new Date(share.expiresAt) < new Date();
+                    const isInactive = isRevoked || isUsed || isExpired;
+                    const isActive = !isInactive;
 
-              {/* Revoke Action (ONLY SHOWN IF LINK IS CURRENTLY ACTIVE, NOT EXPIRED, NOT USED, NOT REVOKED) */}
-              {isLinkActive && (
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 mt-4">
-                  <div className="space-y-0.5">
-                    <div className="text-sm font-semibold text-rose-300">Revoke Share Link</div>
-                    <div className="text-xs text-rose-300/80">
-                      Immediately invalidates this share link. Anyone opening it will be denied access.
-                    </div>
-                  </div>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={() => handleRevoke(share.id)}
-                    disabled={revoking}
-                    className="gap-1.5 shrink-0 w-full sm:w-auto font-medium"
-                  >
-                    <Ban className="h-4 w-4" />
-                    {revoking ? "Revoking..." : "Revoke Link"}
-                  </Button>
+                    const token = share.rawToken || share.tokenHash;
+                    const shareUrl = `${appUrl}/share/${token}`;
+                    const shareNumber = note.shares.length - 1 - index;
+
+                    return (
+                      <div
+                        key={share.id}
+                        className={`p-4 rounded-xl border transition-all space-y-4 ${
+                          isActive
+                            ? "bg-background/80 border-primary/40 shadow-md"
+                            : "bg-muted/20 border-border/60 opacity-80"
+                        }`}
+                      >
+                        {/* Share Item Header */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border/40 pb-3">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-slate-200">
+                              Share Link #{shareNumber}
+                            </span>
+                            <span className="text-[11px] text-muted-foreground">
+                              (Created {new Date(share.createdAt).toLocaleString()})
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {/* Status Badge */}
+                            {isRevoked ? (
+                              <Badge variant="destructive" className="text-[10px] font-bold">
+                                REVOKED
+                              </Badge>
+                            ) : isUsed ? (
+                              <Badge variant="warning" className="text-[10px] font-bold">
+                                USED / CONSUMED
+                              </Badge>
+                            ) : isExpired ? (
+                              <Badge variant="destructive" className="text-[10px] font-bold">
+                                EXPIRED
+                              </Badge>
+                            ) : (
+                              <Badge variant="success" className="text-[10px] font-bold">
+                                ACTIVE
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Share Link Copy Field (If Active) */}
+                        {isActive && (
+                          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                            <Input
+                              value={shareUrl}
+                              readOnly
+                              className="font-mono text-xs bg-background/90 text-emerald-300 select-all h-9 border-primary/20"
+                            />
+                            <Button
+                              size="sm"
+                              onClick={() => copyToClipboard(shareUrl, share.id)}
+                              className="shrink-0 gap-1.5 h-9 font-medium"
+                            >
+                              {copiedShareId === share.id ? (
+                                <Check className="h-3.5 w-3.5 text-emerald-400" />
+                              ) : (
+                                <Copy className="h-3.5 w-3.5" />
+                              )}
+                              {copiedShareId === share.id ? "Copied" : "Copy Link"}
+                            </Button>
+                          </div>
+                        )}
+
+                        {/* Share Attributes Grid */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                          {/* View Count */}
+                          <div className="p-2.5 rounded-lg bg-primary/10 border border-primary/20 flex items-center gap-2">
+                            <Eye className="h-4 w-4 text-primary shrink-0" />
+                            <div>
+                              <div className="font-bold text-slate-100 text-sm">{share.viewCount}</div>
+                              <div className="text-[10px] text-muted-foreground">Views</div>
+                            </div>
+                          </div>
+
+                          {/* Share Type */}
+                          <div className="p-2.5 rounded-lg bg-muted/30 border border-border/60 flex items-center gap-2">
+                            <Clock className="h-4 w-4 text-amber-400 shrink-0" />
+                            <div>
+                              <div className="font-semibold text-slate-200 text-xs">
+                                {share.shareType === "ONE_TIME" ? "One-Time" : "Time-Based"}
+                              </div>
+                              <div className="text-[10px] text-muted-foreground">Type</div>
+                            </div>
+                          </div>
+
+                          {/* Access Type */}
+                          <div className="p-2.5 rounded-lg bg-muted/30 border border-border/60 flex items-center gap-2 min-w-0">
+                            {share.accessType === "PASSWORD_PROTECTED" ? (
+                              <Lock className="h-4 w-4 text-emerald-400 shrink-0" />
+                            ) : (
+                              <Globe className="h-4 w-4 text-blue-400 shrink-0" />
+                            )}
+                            <div className="min-w-0">
+                              <div className="font-semibold text-slate-200 text-xs truncate">
+                                {share.accessType === "PASSWORD_PROTECTED" ? "Password" : "Public"}
+                              </div>
+                              <div className="text-[10px] text-muted-foreground">Access</div>
+                            </div>
+                          </div>
+
+                          {/* Expiry */}
+                          <div className="p-2.5 rounded-lg bg-muted/30 border border-border/60 flex items-center gap-2 min-w-0">
+                            <ShieldAlert className="h-4 w-4 text-purple-400 shrink-0" />
+                            <div className="min-w-0">
+                              <div className="font-semibold text-slate-200 text-xs truncate">
+                                {share.expiresAt
+                                  ? new Date(share.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                                  : "No Expiry"}
+                              </div>
+                              <div className="text-[10px] text-muted-foreground">
+                                {share.expiresAt ? new Date(share.expiresAt).toLocaleDateString() : "Lifetime"}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Revoke Action */}
+                        {isActive && (
+                          <div className="flex justify-end pt-1">
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              onClick={() => handleRevoke(share.id)}
+                              disabled={revokingId === share.id}
+                              className="gap-1.5 text-xs h-8 font-medium"
+                            >
+                              <Ban className="h-3.5 w-3.5" />
+                              {revokingId === share.id ? "Revoking..." : "Revoke Link"}
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -542,3 +775,4 @@ export default function NoteDetailPage() {
     </div>
   );
 }
+
