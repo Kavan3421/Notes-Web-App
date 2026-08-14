@@ -16,7 +16,6 @@ import {
 } from "@/lib/auth";
 import { checkRateLimit, recordFailedAttempt, clearRateLimit } from "@/lib/rate-limit";
 
-// Define Hono environment types with custom context variables
 type Env = {
   Variables: {
     user: JWTPayload;
@@ -25,7 +24,6 @@ type Env = {
 
 const app = new Hono<Env>().basePath("/api");
 
-// Helper to dynamically get application base origin URL from request headers or environment
 function getRequestOrigin(c: any): string {
   if (process.env.NEXT_PUBLIC_APP_URL) {
     return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
@@ -35,7 +33,6 @@ function getRequestOrigin(c: any): string {
   return `${proto}://${host}`;
 }
 
-// Helper to get client IP for rate limiting
 function getClientIp(c: any): string {
   return (
     c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ||
@@ -44,14 +41,12 @@ function getClientIp(c: any): string {
   );
 }
 
-// Helper to get authenticated user from HTTP-only cookie
 function getAuthUser(c: any): JWTPayload | null {
   const token = getCookie(c, AUTH_COOKIE_NAME);
   if (!token) return null;
   return verifyJwtToken(token);
 }
 
-// Auth Middleware for protected routes
 const requireAuth = async (c: any, next: () => Promise<void>) => {
   const user = getAuthUser(c);
   if (!user) {
@@ -61,11 +56,6 @@ const requireAuth = async (c: any, next: () => Promise<void>) => {
   await next();
 };
 
-// ==========================================
-// AUTHENTICATION ROUTES
-// ==========================================
-
-// POST /api/auth/register
 app.post("/auth/register", async (c) => {
   try {
     const body = await c.req.json();
@@ -80,7 +70,6 @@ app.post("/auth/register", async (c) => {
 
     const normalizedEmail = email.trim().toLowerCase();
 
-    // Check existing user
     const existingUser = await db.user.findUnique({
       where: { email: normalizedEmail },
     });
@@ -88,7 +77,6 @@ app.post("/auth/register", async (c) => {
       return c.json({ error: "An account with this email already exists." }, 400);
     }
 
-    // Hash password & create user
     const passwordHash = await hashSecret(password);
     const user = await db.user.create({
       data: {
@@ -97,14 +85,13 @@ app.post("/auth/register", async (c) => {
       },
     });
 
-    // Generate JWT and set HTTP-only cookie
     const token = signJwtToken({ userId: user.id, email: user.email });
     setCookie(c, AUTH_COOKIE_NAME, token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "Lax",
       path: "/",
-      maxAge: 7 * 24 * 60 * 60, // 7 days
+      maxAge: 7 * 24 * 60 * 60,
     });
 
     return c.json({
@@ -116,7 +103,6 @@ app.post("/auth/register", async (c) => {
   }
 });
 
-// POST /api/auth/login
 app.post("/auth/login", async (c) => {
   try {
     const body = await c.req.json();
@@ -158,7 +144,6 @@ app.post("/auth/login", async (c) => {
   }
 });
 
-// POST /api/auth/logout
 app.post("/auth/logout", (c) => {
   setCookie(c, AUTH_COOKIE_NAME, "", {
     httpOnly: true,
@@ -170,7 +155,6 @@ app.post("/auth/logout", (c) => {
   return c.json({ success: true });
 });
 
-// GET /api/auth/me
 app.get("/auth/me", (c) => {
   const user = getAuthUser(c);
   if (!user) {
@@ -179,11 +163,6 @@ app.get("/auth/me", (c) => {
   return c.json({ user });
 });
 
-// ==========================================
-// NOTE MANAGEMENT ROUTES (Authenticated)
-// ==========================================
-
-// POST /api/notes - Create a new note and generate share link
 app.post("/notes", requireAuth, async (c) => {
   try {
     const user = c.get("user");
@@ -204,13 +183,11 @@ app.post("/notes", requireAuth, async (c) => {
       return c.json({ error: "Invalid access type." }, 400);
     }
 
-    // Expiry calculation
     let expiresAt: Date | null = null;
     if (expiryHours && typeof expiryHours === "number" && expiryHours > 0) {
       expiresAt = new Date(Date.now() + expiryHours * 60 * 60 * 1000);
     }
 
-    // Cryptographic Token & Password Generation
     const { rawToken, tokenHash } = generateShareToken();
 
     let generatedKey: string | null = null;
@@ -221,7 +198,6 @@ app.post("/notes", requireAuth, async (c) => {
       passwordHash = await hashSecret(generatedKey);
     }
 
-    // Transaction: Create Note & ShareLink
     const note = await db.note.create({
       data: {
         userId: user.userId,
@@ -252,7 +228,7 @@ app.post("/notes", requireAuth, async (c) => {
       shareId: shareLink.id,
       rawToken,
       shareUrl: fullShareUrl,
-      accessKey: generatedKey, // Returned ONCE to owner after creation
+      accessKey: generatedKey,
     });
   } catch (err: any) {
     console.error("Create note error:", err);
@@ -260,7 +236,6 @@ app.post("/notes", requireAuth, async (c) => {
   }
 });
 
-// POST /api/notes/:id/regenerate-share - Generate a new share link for an existing note
 app.post("/notes/:id/regenerate-share", requireAuth, async (c) => {
   try {
     const user = c.get("user");
@@ -276,7 +251,6 @@ app.post("/notes/:id/regenerate-share", requireAuth, async (c) => {
       return c.json({ error: "Invalid access type." }, 400);
     }
 
-    // Verify note exists and belongs to user
     const note = await db.note.findFirst({
       where: { id: noteId, userId: user.userId },
     });
@@ -285,13 +259,11 @@ app.post("/notes/:id/regenerate-share", requireAuth, async (c) => {
       return c.json({ error: "Note not found or access denied." }, 404);
     }
 
-    // Expiry calculation
     let expiresAt: Date | null = null;
     if (expiryHours && typeof expiryHours === "number" && expiryHours > 0) {
       expiresAt = new Date(Date.now() + expiryHours * 60 * 60 * 1000);
     }
 
-    // Cryptographic Token & Password Generation
     const { rawToken, tokenHash } = generateShareToken();
 
     let generatedKey: string | null = null;
@@ -302,7 +274,6 @@ app.post("/notes/:id/regenerate-share", requireAuth, async (c) => {
       passwordHash = await hashSecret(generatedKey);
     }
 
-    // Create new independent ShareLink database record
     const newShare = await db.shareLink.create({
       data: {
         noteId: note.id,
@@ -331,7 +302,6 @@ app.post("/notes/:id/regenerate-share", requireAuth, async (c) => {
   }
 });
 
-// GET /api/notes - List user's notes
 app.get("/notes", requireAuth, async (c) => {
   try {
     const user = c.get("user");
@@ -352,7 +322,6 @@ app.get("/notes", requireAuth, async (c) => {
   }
 });
 
-// GET /api/notes/:id - Get owner note detail & share status
 app.get("/notes/:id", requireAuth, async (c) => {
   try {
     const user = c.get("user");
@@ -378,13 +347,11 @@ app.get("/notes/:id", requireAuth, async (c) => {
   }
 });
 
-// POST /api/shares/:id/revoke - Revoke a share link
 app.post("/shares/:id/revoke", requireAuth, async (c) => {
   try {
     const user = c.get("user");
     const shareId = c.req.param("id");
 
-    // Find share and ensure note belongs to user
     const share = await db.shareLink.findUnique({
       where: { id: shareId },
       include: { note: true },
@@ -410,17 +377,11 @@ app.post("/shares/:id/revoke", requireAuth, async (c) => {
   }
 });
 
-// ==========================================
-// PUBLIC SHARE LINK ACCESS ROUTES
-// ==========================================
-
-// GET /api/share/:token - Inspect share link metadata
 app.get("/share/:token", async (c) => {
   try {
     const rawToken = c.req.param("token");
     const computedHash = hashToken(rawToken);
 
-    // Support lookup by hashed token OR rawToken OR legacy tokenHash
     const share = await db.shareLink.findFirst({
       where: {
         OR: [
@@ -462,7 +423,6 @@ app.get("/share/:token", async (c) => {
   }
 });
 
-// POST /api/share/:token/unlock - Unlock and view note content
 app.post("/share/:token/unlock", async (c) => {
   try {
     const rawToken = c.req.param("token");
@@ -471,7 +431,6 @@ app.post("/share/:token/unlock", async (c) => {
     const accessKey = body?.password || "";
     const ip = getClientIp(c);
 
-    // 1. Fetch Share Link
     const share = await db.shareLink.findFirst({
       where: {
         OR: [
@@ -489,7 +448,6 @@ app.post("/share/:token/unlock", async (c) => {
 
     const tokenHash = share.tokenHash;
 
-    // 2. Security Status Checks
     if (share.revokedAt) {
       return c.json({ error: "This share link has been revoked." }, 410);
     }
@@ -502,7 +460,6 @@ app.post("/share/:token/unlock", async (c) => {
       return c.json({ error: "This share link has already been used." }, 410);
     }
 
-    // 3. Password Verification (If Password Protected)
     if (share.accessType === "PASSWORD_PROTECTED") {
       const rateLimitKey = `pw_attempt:${ip}:${tokenHash}`;
       const rateCheck = checkRateLimit(rateLimitKey, 5, 15 * 60 * 1000);
@@ -527,23 +484,13 @@ app.post("/share/:token/unlock", async (c) => {
       const isValidPassword = await verifySecret(accessKey, share.passwordHash);
       if (!isValidPassword) {
         recordFailedAttempt(rateLimitKey, 5, 15 * 60 * 1000);
-        // Note: viewCount MUST NOT be incremented on failed password!
         return c.json({ error: "Invalid access key." }, 401);
       }
 
-      // Password succeeded -> clear rate limit
       clearRateLimit(rateLimitKey);
     }
 
-    // 4. ATOMIC CLAIM & VIEW COUNT UPDATE
     if (share.shareType === "ONE_TIME") {
-      /**
-       * ATOMIC RACE-CONDITION SAFE CLAIM:
-       * Uses conditional database UPDATE `where: { id, usedAt: null, revokedAt: null }`.
-       * PostgreSQL row-level locks ensure that if two concurrent requests attempt to claim this link,
-       * only ONE query matches `usedAt: null` and updates count to 1.
-       * The losing concurrent query receives `count === 0` and is safely rejected.
-       */
       const claimResult = await db.shareLink.updateMany({
         where: {
           id: share.id,
@@ -564,17 +511,12 @@ app.post("/share/:token/unlock", async (c) => {
         return c.json({ error: "This share link has already been used." }, 410);
       }
     } else {
-      /**
-       * TIME-BASED / PUBLIC LINK:
-       * Atomic database-side increment (`viewCount: { increment: 1 }`).
-       */
       await db.shareLink.update({
         where: { id: share.id },
         data: { viewCount: { increment: 1 } },
       });
     }
 
-    // Return the decrypted/unlocked note content
     return c.json({
       title: share.note.title,
       content: share.note.content,
@@ -589,3 +531,4 @@ app.post("/share/:token/unlock", async (c) => {
 });
 
 export default app;
+
